@@ -12,7 +12,6 @@ import numpy as np
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
 import time
-import requests
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -233,11 +232,7 @@ def fetch_stock_data(ticker_symbol, days=365):
     """Fetch stock data with caching and retry logic"""
     try:
         def _fetch():
-            session = requests.Session()
-            session.headers.update({
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-            })
-            ticker = yf.Ticker(ticker_symbol, session=session)
+            ticker = yf.Ticker(ticker_symbol)
             end_date = datetime.now()
             start_date = end_date - timedelta(days=days)
             hist = ticker.history(start=start_date, end=end_date)
@@ -245,7 +240,7 @@ def fetch_stock_data(ticker_symbol, days=365):
                 return None
             if isinstance(hist.columns, pd.MultiIndex):
                 hist.columns = hist.columns.get_level_values(0)
-            time.sleep(0.5)  # Small delay before info call
+            time.sleep(1)  # Delay before info call to avoid rate limits
             info = ticker.info
             return (hist, info)
 
@@ -262,11 +257,7 @@ def fetch_long_term_data(ticker_symbol):
     """Fetch 20-year monthly data with retry logic"""
     try:
         def _fetch():
-            session = requests.Session()
-            session.headers.update({
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-            })
-            ticker = yf.Ticker(ticker_symbol, session=session)
+            ticker = yf.Ticker(ticker_symbol)
             end_date = datetime.now()
             start_date = end_date - timedelta(days=365*20)
             hist = ticker.history(start=start_date, end=end_date, interval="1mo")

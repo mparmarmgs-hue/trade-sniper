@@ -11,6 +11,8 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
+import time
+import requests
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -208,53 +210,90 @@ volatility_threshold = st.sidebar.slider("Volatility Threshold (%)", 1.0, 5.0, 2
 st.title(f"🎯 The Trade Sniper — {ticker_symbol}")
 st.markdown("**Rule-Based Trading Strategy | Prevent Catching Falling Knives**")
 
-# Fetch data
-@st.cache_data(ttl=300)
+# Fetch data with retry logic for rate limiting
+def _fetch_with_retry(fetch_fn, max_retries=3, base_delay=2):
+    """Retry wrapper with exponential backoff for yfinance rate limits"""
+    for attempt in range(max_retries):
+        try:
+            result = fetch_fn()
+            if result is not None:
+                return result
+        except Exception as e:
+            error_msg = str(e).lower()
+            if 'rate' in error_msg or 'too many' in error_msg or '429' in error_msg:
+                if attempt < max_retries - 1:
+                    delay = base_delay * (2 ** attempt)
+                    time.sleep(delay)
+                    continue
+            raise e
+    return None
+
+@st.cache_data(ttl=900, show_spinner=False)
 def fetch_stock_data(ticker_symbol, days=365):
-    """Fetch stock data with caching"""
+    """Fetch stock data with caching and retry logic"""
     try:
-        ticker = yf.Ticker(ticker_symbol)
-        end_date = datetime.now()
-        start_date = end_date - timedelta(days=days)
+        def _fetch():
+            session = requests.Session()
+            session.headers.update({
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            })
+            ticker = yf.Ticker(ticker_symbol, session=session)
+            end_date = datetime.now()
+            start_date = end_date - timedelta(days=days)
+            hist = ticker.history(start=start_date, end=end_date)
+            if hist is None or hist.empty:
+                return None
+            if isinstance(hist.columns, pd.MultiIndex):
+                hist.columns = hist.columns.get_level_values(0)
+            time.sleep(0.5)  # Small delay before info call
+            info = ticker.info
+            return (hist, info)
 
-        # Get historical data
-        hist = ticker.history(start=start_date, end=end_date)
-
-        # Flatten multi-level columns if present
-        if isinstance(hist.columns, pd.MultiIndex):
-            hist.columns = hist.columns.get_level_values(0)
-
-        # Get info
-        info = ticker.info
-
-        return hist, info
+        result = _fetch_with_retry(_fetch, max_retries=3, base_delay=3)
+        if result:
+            return result
+        return None, None
     except Exception as e:
         st.error(f"Error fetching data: {str(e)}")
         return None, None
 
-# Fetch long-term data for historical context
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=3600, show_spinner=False)
 def fetch_long_term_data(ticker_symbol):
-    """Fetch 20-year monthly data"""
+    """Fetch 20-year monthly data with retry logic"""
     try:
-        ticker = yf.Ticker(ticker_symbol)
-        end_date = datetime.now()
-        start_date = end_date - timedelta(days=365*20)
-        hist = ticker.history(start=start_date, end=end_date, interval="1mo")
-        if isinstance(hist.columns, pd.MultiIndex):
-            hist.columns = hist.columns.get_level_values(0)
-        return hist
+        def _fetch():
+            session = requests.Session()
+            session.headers.update({
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            })
+            ticker = yf.Ticker(ticker_symbol, session=session)
+            end_date = datetime.now()
+            start_date = end_date - timedelta(days=365*20)
+            hist = ticker.history(start=start_date, end=end_date, interval="1mo")
+            if hist is None or hist.empty:
+                return None
+            if isinstance(hist.columns, pd.MultiIndex):
+                hist.columns = hist.columns.get_level_values(0)
+            return hist
+
+        return _fetch_with_retry(_fetch, max_retries=3, base_delay=3)
     except Exception as e:
         st.error(f"Error fetching long-term data: {str(e)}")
         return None
 
 # Load data
-with st.spinner(f"Loading {ticker_symbol} data..."):
-    data, info = fetch_stock_data(ticker_symbol, lookback_days)
+with st.spinner(f"Loading {ticker_symbol} data (may take a moment on first load)..."):
+    result = fetch_stock_data(ticker_symbol, lookback_days)
+    if result is None:
+        data, info = None, None
+    else:
+        data, info = result
+    time.sleep(0.5)  # Brief pause between API calls to avoid rate limits
     long_term_data = fetch_long_term_data(ticker_symbol)
 
-if data is None or data.empty:
-    st.error(f"Unable to fetch {ticker_symbol} data. Please check the ticker symbol and your internet connection.")
+if data is None or (hasattr(data, 'empty') and data.empty):
+    st.error(f"Unable to fetch {ticker_symbol} data. This may be due to Yahoo Finance rate limiting.")
+    st.info("**Tip:** Wait 30-60 seconds and refresh the page. Data is cached for 15 minutes after a successful load.")
     st.stop()
 
 # Calculate indicators

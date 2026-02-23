@@ -1,0 +1,46 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environments
+venv/
+env/
+.venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Generated files (not needed for Streamlit Cloud)
+*.mp4
+*.csv
+trade_sniper_report.html
+trade_sniper_analyst_report.html
+trade_sniper_presentation.mp4
+
+# Local scripts not needed for deployment
+generate_video.py
+trade_sniper_scanner.py
+run.py
+run.bat
+streamlit_app.py
+
+# Backend (Flask app - separate from Streamlit)
+backend/
+frontend/
+
+# Claude
+.claude/
